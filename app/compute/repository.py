@@ -77,10 +77,17 @@ class ComputeRepository:
     def interventions(self, task_id: int) -> list[dict[str, Any]]:
         return [dict(row) for row in self.connection.execute("SELECT * FROM compute_interventions WHERE task_id=? ORDER BY id", (task_id,)).fetchall()]
 
-    def add_intervention(self, *, task_id: int, actor: str, action: str, reason: str, before: dict[str, Any], after: dict[str, Any], batch_key: str, now: str) -> None:
+    def intervention_exists(self, task_id: int, action: str, lease_epoch: int) -> bool:
+        row = self.connection.execute(
+            "SELECT 1 FROM compute_interventions WHERE task_id=? AND action=? AND lease_epoch=? LIMIT 1",
+            (task_id, action, lease_epoch),
+        ).fetchone()
+        return row is not None
+
+    def add_intervention(self, *, task_id: int, actor: str, action: str, reason: str, before: dict[str, Any], after: dict[str, Any], batch_key: str, now: str, lease_epoch: int = 0, detail: dict[str, Any] | None = None) -> None:
         self.connection.execute(
-            "INSERT INTO compute_interventions(task_id,actor,action,reason,before_json,after_json,batch_key,created_at) VALUES(?,?,?,?,?,?,?,?)",
-            (task_id, actor, action, reason, json.dumps(before, ensure_ascii=False, sort_keys=True), json.dumps(after, ensure_ascii=False, sort_keys=True), batch_key, now),
+            "INSERT INTO compute_interventions(task_id,actor,action,reason,before_json,after_json,batch_key,lease_epoch,detail_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (task_id, actor, action, reason, json.dumps(before, ensure_ascii=False, sort_keys=True), json.dumps(after, ensure_ascii=False, sort_keys=True), batch_key, lease_epoch, json.dumps(detail or {}, ensure_ascii=False, sort_keys=True), now),
         )
 
     def list_tasks(self, *, status: str | None, project_code: str | None, requested_by: str | None, limit: int) -> list[dict[str, Any]]:

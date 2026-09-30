@@ -258,6 +258,7 @@ CREATE TABLE IF NOT EXISTS compute_tasks (
     available_at TEXT NOT NULL,
     lease_owner TEXT NOT NULL DEFAULT '',
     lease_expires_at TEXT NOT NULL DEFAULT '',
+    lease_epoch INTEGER NOT NULL DEFAULT 0,
     current_result_version INTEGER,
     last_error_code TEXT NOT NULL DEFAULT '',
     last_error_message TEXT NOT NULL DEFAULT '',
@@ -290,6 +291,8 @@ CREATE TABLE IF NOT EXISTS compute_interventions (
     before_json TEXT NOT NULL,
     after_json TEXT NOT NULL,
     batch_key TEXT NOT NULL DEFAULT '',
+    lease_epoch INTEGER NOT NULL DEFAULT 0,
+    detail_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_compute_interventions_task ON compute_interventions(task_id,id);
@@ -359,10 +362,28 @@ def transaction(*, immediate: bool = False) -> Iterator[sqlite3.Connection]:
         connection.commit()
 
 
+def _table_columns(connection: sqlite3.Connection, table: str) -> set[str]:
+    return {row[1] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _ensure_schema_revisions(connection: sqlite3.Connection) -> None:
+    """对既有库补齐后加列；全新库已由 SCHEMA 包含，所有改动均可重复执行。"""
+    task_columns = _table_columns(connection, "compute_tasks")
+    if "lease_epoch" not in task_columns:
+        connection.execute("ALTER TABLE compute_tasks ADD COLUMN lease_epoch INTEGER NOT NULL DEFAULT 0")
+    intervention_columns = _table_columns(connection, "compute_interventions")
+    if "lease_epoch" not in intervention_columns:
+        connection.execute("ALTER TABLE compute_interventions ADD COLUMN lease_epoch INTEGER NOT NULL DEFAULT 0")
+    if "detail_json" not in intervention_columns:
+        connection.execute("ALTER TABLE compute_interventions ADD COLUMN detail_json TEXT NOT NULL DEFAULT '{}'")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_compute_interventions_lease ON compute_interventions(task_id,action,lease_epoch)")
+
+
 def init_db() -> None:
     now = to_storage(utc_now())
     with transaction(immediate=True) as connection:
         connection.executescript(SCHEMA)
+        _ensure_schema_revisions(connection)
         for code, name, resource, action in PERMISSIONS:
             connection.execute(
                 "INSERT OR IGNORE INTO permissions(code,name,resource,action) VALUES(?,?,?,?)",

@@ -49,17 +49,17 @@ def claim_task(payload: TaskClaim):
 
 @router.post("/tasks/{task_id}/heartbeat")
 def heartbeat(task_id: int, payload: TaskClaim):
-    return service().heartbeat(task_id, payload.worker_id, payload.lease_seconds)
+    return service().heartbeat(task_id, payload.worker_id, payload.lease_seconds, payload.lease_epoch)
 
 
 @router.post("/tasks/{task_id}/complete")
 def complete_task(task_id: int, payload: TaskResult):
-    return service().complete(task_id, payload.worker_id, payload.result, payload.metrics)
+    return service().complete(task_id, payload.worker_id, payload.result, payload.metrics, payload.lease_epoch)
 
 
 @router.post("/tasks/{task_id}/fail")
 def fail_task(task_id: int, payload: TaskFailure):
-    return service().fail(task_id, payload.worker_id, payload.error_code, payload.message, payload.retryable)
+    return service().fail(task_id, payload.worker_id, payload.error_code, payload.message, payload.retryable, payload.lease_epoch)
 
 
 @router.post("/tasks/{task_id}/cancel")
