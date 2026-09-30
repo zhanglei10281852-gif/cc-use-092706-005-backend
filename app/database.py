@@ -258,6 +258,7 @@ CREATE TABLE IF NOT EXISTS compute_tasks (
     available_at TEXT NOT NULL,
     lease_owner TEXT NOT NULL DEFAULT '',
     lease_expires_at TEXT NOT NULL DEFAULT '',
+    lease_generation INTEGER NOT NULL DEFAULT 0,
     current_result_version INTEGER,
     last_error_code TEXT NOT NULL DEFAULT '',
     last_error_message TEXT NOT NULL DEFAULT '',
@@ -363,6 +364,7 @@ def init_db() -> None:
     now = to_storage(utc_now())
     with transaction(immediate=True) as connection:
         connection.executescript(SCHEMA)
+        _ensure_columns(connection)
         for code, name, resource, action in PERMISSIONS:
             connection.execute(
                 "INSERT OR IGNORE INTO permissions(code,name,resource,action) VALUES(?,?,?,?)",
@@ -385,6 +387,13 @@ def init_db() -> None:
             "INSERT OR IGNORE INTO role_permissions(role_id,permission_id,granted_at) SELECT ?,id,? FROM permissions",
             (administrator, now),
         )
+
+
+def _ensure_columns(connection: sqlite3.Connection) -> None:
+    """为旧库补齐后续版本新增的列（CREATE TABLE IF NOT EXISTS 不会变更已存在的表）。"""
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(compute_tasks)").fetchall()}
+    if "lease_generation" not in columns:
+        connection.execute("ALTER TABLE compute_tasks ADD COLUMN lease_generation INTEGER NOT NULL DEFAULT 0")
 
 
 def migrate_db() -> None:
